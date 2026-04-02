@@ -96,14 +96,14 @@ export default class GameScene extends Phaser.Scene {
     this.highScoreText.setScrollFactor(0);
 
     // Instructions with neon effect
-    this.instrText = this.add.text(400, 150, 'PRESS SPACE OR TAP', {
+    this.instrText = this.add.text(400, 150, 'PRESS SPACE TO START', {
       fontSize: '20px',
       fontFamily: 'Courier New',
       color: '#4ade80',
       fontStyle: 'bold'
     }).setOrigin(0.5);
 
-    this.instrSubText = this.add.text(400, 175, 'TO START', {
+    this.instrSubText = this.add.text(400, 175, '', {
       fontSize: '16px',
       fontFamily: 'Courier New',
       color: '#888888'
@@ -122,50 +122,62 @@ export default class GameScene extends Phaser.Scene {
     this.cursors = this.input.keyboard.createCursorKeys();
     this.spaceBar = this.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.SPACE);
 
-    this.input.on('pointerdown', () => this.jump());
+    // Only jump when game is already started, click to start is disabled
+    this.input.on('pointerdown', () => {
+      if (this.gameOver) return;
+      if (this.gameStarted) {
+        this.doJump();
+      }
+    });
 
     // Collision detection
     this.physics.add.overlap(this.dinosaur, this.obstacles, this.hitObstacle, null, this);
 
-    // Timer for spawning obstacles
+    // Timer for spawning obstacles (only when game started)
     this.obstacleTimer = this.time.addEvent({
       delay: 1500,
       callback: this.spawnObstacle,
       callbackScope: this,
-      loop: true
+      loop: true,
+      paused: true
     });
 
-    // Score timer
-    this.time.addEvent({
+    // Score timer (only when game started)
+    this.scoreTimer = this.time.addEvent({
       delay: 100,
       callback: () => {
-        if (!this.gameOver) {
+        if (!this.gameOver && this.gameStarted) {
           this.score += 1;
           this.scoreValue.setText(`${this.score}`);
         }
       },
-      loop: true
+      loop: true,
+      paused: true
     });
 
     // Game speed increase
-    this.time.addEvent({
+    this.speedTimer = this.time.addEvent({
       delay: 500,
       callback: () => {
-        if (!this.gameOver && this.gameSpeed < 700) {
+        if (!this.gameOver && this.gameStarted && this.gameSpeed < 700) {
           this.gameSpeed += 10;
         }
       },
-      loop: true
+      loop: true,
+      paused: true
     });
   }
 
   update() {
     if (this.gameOver) return;
 
-    // Animate ground
-    this.ground.tilePositionX += this.gameSpeed * 0.016;
+    // Only animate when game started
+    if (this.gameStarted) {
+      // Animate ground
+      this.ground.tilePositionX += this.gameSpeed * 0.016;
+    }
 
-    // Animate clouds
+    // Animate clouds (always, for ambiance)
     this.clouds.getChildren().forEach(cloud => {
       cloud.x -= 0.3;
       if (cloud.x < -50) {
@@ -174,7 +186,7 @@ export default class GameScene extends Phaser.Scene {
       }
     });
 
-    // Twinkle stars
+    // Twinkle stars (always, for ambiance)
     this.stars.getChildren().forEach(star => {
       if (Math.random() < 0.02) {
         star.setAlpha(0.3 + Math.random() * 0.7);
@@ -183,12 +195,40 @@ export default class GameScene extends Phaser.Scene {
 
     // Jump controls
     if (Phaser.Input.Keyboard.JustDown(this.cursors.up) || Phaser.Input.Keyboard.JustDown(this.spaceBar)) {
-      this.jump();
+      if (!this.gameStarted && !this.gameOver) {
+        this.startGame();
+      } else if (this.gameStarted) {
+        this.doJump();
+      }
     }
 
     // Keep dinosaur angle at 0 when on ground
     if (this.dinosaur.body.touching.down) {
       this.dinosaur.setAngle(0);
+    }
+  }
+
+  startGame() {
+    this.gameStarted = true;
+    this.instrText.setVisible(false);
+    this.instrSubText.setVisible(false);
+    this.tweens.killTweensOf(this.instrText);
+
+    // Start all timers
+    this.obstacleTimer.paused = false;
+    this.scoreTimer.paused = false;
+    this.speedTimer.paused = false;
+
+    // Initial jump
+    this.doJump();
+  }
+
+  doJump() {
+    if (this.gameOver) return;
+    // Jump only when on ground
+    if (this.dinosaur.body.touching.down || this.dinosaur.y >= this.groundY - 36) {
+      this.dinosaur.setVelocityY(-450);
+      this.dinosaur.setAngle(-10);
     }
   }
 
@@ -199,26 +239,22 @@ export default class GameScene extends Phaser.Scene {
       this.gameStarted = false;
       this.score = 0;
       this.gameSpeed = 300;
+      // Reset timers to paused
+      this.obstacleTimer.paused = true;
+      this.scoreTimer.paused = true;
+      this.speedTimer.paused = true;
       return;
     }
 
-    // Hide instructions on first jump
     if (!this.gameStarted) {
-      this.gameStarted = true;
-      this.instrText.setVisible(false);
-      this.instrSubText.setVisible(false);
-      this.tweens.killTweensOf(this.instrText);
-    }
-
-    // Jump only when on ground
-    if (this.dinosaur.body.touching.down || this.dinosaur.y >= this.groundY - 36) {
-      this.dinosaur.setVelocityY(-450);
-      this.dinosaur.setAngle(-10);
+      this.startGame();
+    } else {
+      this.doJump();
     }
   }
 
   spawnObstacle() {
-    if (this.gameOver) return;
+    if (this.gameOver || !this.gameStarted) return;
 
     const obstacleTypes = ['cactus_small', 'cactus_large', 'pterodactyl'];
     const type = Phaser.Math.RND.pick(obstacleTypes);
